@@ -1,0 +1,92 @@
+{
+  "jobs": [
+    {
+      "job_id": "314bf012-513e-47c0-85f5-f53ada228622",
+      "job_name": "Download @downykenya",
+      "status": "completed",
+      "created_at": "2026-01-10T11:00:17.072997",
+      "username": "downykenya",
+      "urls": [],
+      "total_videos": 14,
+      "downloaded": 7,
+      "failed": 7,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/314bf012-513e-47c0-85f5-f53ada228622"
+    },
+    {
+      "job_id": "ef9c9551-e509-4987-b37a-90522c0fb987",
+      "job_name": "Download @downykenya",
+      "status": "completed",
+      "created_at": "2026-01-10T11:04:30.580675",
+      "username": "downykenya",
+      "urls": [],
+      "total_videos": 14,
+      "downloaded": 2,
+      "failed": 12,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/ef9c9551-e509-4987-b37a-90522c0fb987"
+    },
+    {
+      "job_id": "9540352e-736d-4995-b761-cd328e82e2b9",
+      "job_name": "Download @__iss.aa",
+      "status": "downloading",
+      "created_at": "2026-01-10T11:11:59.899516",
+      "username": "__iss.aa",
+      "urls": [],
+      "total_videos": 0,
+      "downloaded": 0,
+      "failed": 0,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/9540352e-736d-4995-b761-cd328e82e2b9"
+    },
+    {
+      "job_id": "9cd95e5e-f638-4d9e-a3c2-064a1f15fa3f",
+      "job_name": "Download 1 videos",
+      "status": "completed",
+      "created_at": "2026-01-10T11:33:16.257691",
+      "username": null,
+      "urls": [
+        "https://www.tiktok.com/@kenyarevenueauthority/photo/7582147718412340536?is_from_webapp=1&sender_device=pc"
+      ],
+      "total_videos": 1,
+      "downloaded": 0,
+      "failed": 1,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/9cd95e5e-f638-4d9e-a3c2-064a1f15fa3f"
+    },
+    {
+      "job_id": "1f3bb0d7-358f-4fab-b6f2-1e94393fdb50",
+      "job_name": "Download 1 videos",
+      "status": "completed",
+      "created_at": "2026-01-10T11:35:56.539639",
+      "username": null,
+      "urls": [
+        "https://www.tiktok.com/@kenyarevenueauthority/photo/7582147718412340536?is_from_webapp=1&sender_device=pc"
+      ],
+      "total_videos": 1,
+      "downloaded": 0,
+      "failed": 1,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/1f3bb0d7-358f-4fab-b6f2-1e94393fdb50"
+    },
+    {
+      "job_id": "cdc77080-590d-452f-9821-28138e839ec7",
+      "job_name": "Download @kenyarevenueauthority",
+      "status": "downloading",
+      "created_at": "2026-01-10T11:39:59.332740",
+      "username": "kenyarevenueauthority",
+      "urls": [],
+      "total_videos": 0,
+      "downloaded": 0,
+      "failed": 0,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/kenyarevenueauthority"
+    },
+    {
+      "job_id": "20b6eb12-87cc-47fb-8254-66dba61cd56a",
+      "job_name": "Download @kenyarevenueauthority",
+      "status": "downloading",
+      "created_at": "2026-01-10T11:47:12.742755",
+      "username": "kenyarevenueauthority",
+      "urls": [],
+      "total_videos": 0,
+      "downloaded": 0,
+      "failed": 0,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/kenyarevenueauthority"
+    }
+  ]
+}

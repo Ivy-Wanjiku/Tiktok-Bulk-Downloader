@@ -1,0 +1,28 @@
+{
+  "jobs": [
+    {
+      "job_id": "314bf012-513e-47c0-85f5-f53ada228622",
+      "job_name": "Download @downykenya",
+      "status": "completed",
+      "created_at": "2026-01-10T11:00:17.072997",
+      "username": "downykenya",
+      "urls": [],
+      "total_videos": 14,
+      "downloaded": 7,
+      "failed": 7,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/314bf012-513e-47c0-85f5-f53ada228622"
+    },
+    {
+      "job_id": "ef9c9551-e509-4987-b37a-90522c0fb987",
+      "job_name": "Download @downykenya",
+      "status": "completed",
+      "created_at": "2026-01-10T11:04:30.580675",
+      "username": "downykenya",
+      "urls": [],
+      "total_videos": 14,
+      "downloaded": 2,
+      "failed": 12,
+      "download_path": "/home/ivy/tiktok-bulk-downloader/downloads/ef9c9551-e509-4987-b37a-90522c0fb987"
+    }
+  ]
+}
