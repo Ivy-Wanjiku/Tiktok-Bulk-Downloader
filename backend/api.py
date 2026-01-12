@@ -17,13 +17,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator, Field
 import uvicorn
 
 from config import (
     API_HOST, API_PORT, DOWNLOADS_DIR, MANIFEST_FILE,
-    MAX_CONCURRENT_DOWNLOADS, ALLOWED_ORIGINS, USERNAME_PATTERN,
+    ALLOWED_ORIGINS, USERNAME_PATTERN,
     MAX_USERNAME_LENGTH, MAX_URL_LENGTH
 )
 from downloader import TikTokDownloader
@@ -174,7 +173,9 @@ class ManifestManager:
         return None
     
     def list_jobs(self) -> List[dict]:
-        return self.manifest["jobs"]
+        # Sort jobs by created_at descending (newest first)
+        jobs = self.manifest["jobs"]
+        return sorted(jobs, key=lambda x: x.get('created_at', ''), reverse=True)
 
 manifest_manager = ManifestManager(MANIFEST_FILE)
 

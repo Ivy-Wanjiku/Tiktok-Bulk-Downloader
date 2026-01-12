@@ -3,6 +3,12 @@
 
 echo "🚀 Starting TikTok Bulk Downloader..."
 
+# Kill any existing processes on ports 3000 and 8080
+echo "🧹 Checking for existing processes..."
+lsof -ti:3000 | xargs -r kill -9 2>/dev/null
+lsof -ti:8080 | xargs -r kill -9 2>/dev/null
+sleep 1
+
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
     echo "❌ Virtual environment not found. Please run: python3 -m venv venv"

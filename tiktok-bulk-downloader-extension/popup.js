@@ -1,10 +1,6 @@
 // Extension popup script
 
-// Default API URL - users can change this in settings
 let apiUrl = 'http://localhost:3000';
-let isDownloading = false;
-let lastDownloadTime = 0;
-const DOWNLOAD_COOLDOWN_MS = 2000; // 2 second cooldown between downloads
 
 document.addEventListener('DOMContentLoaded', async () => {
     // Load saved settings
@@ -14,9 +10,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (settings.apiUrl) {
         apiUrl = settings.apiUrl;
-        document.getElementById('apiUrl').value = apiUrl;
-    } else {
-        // Set default value in UI
         document.getElementById('apiUrl').value = apiUrl;
     }
     
@@ -42,28 +35,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function checkApiStatus() {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const response = await fetch(`${apiUrl}/api/health`, {
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
+        const response = await fetch(`${apiUrl}/api/health`);
         if (response.ok) {
             document.getElementById('apiStatus').textContent = '✅ Connected';
             document.getElementById('apiStatus').style.color = '#4caf50';
-            return true;
         } else {
-            document.getElementById('apiStatus').textContent = `❌ Error (${response.status})`;
+            document.getElementById('apiStatus').textContent = '❌ Error';
             document.getElementById('apiStatus').style.color = '#f44336';
-            return false;
         }
     } catch (error) {
-        const message = error.name === 'AbortError' ? '❌ Timeout' : '❌ Offline';
-        document.getElementById('apiStatus').textContent = message;
+        document.getElementById('apiStatus').textContent = '❌ Offline';
         document.getElementById('apiStatus').style.color = '#f44336';
-        return false;
     }
 }
 
@@ -106,30 +88,19 @@ async function startScrolling() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
     if (!tab || !tab.url.includes('tiktok.com')) {
-        showMessage('❌ Please navigate to a TikTok page first', 'error');
+        showMessage('Please navigate to a TikTok page first', 'error');
         return;
     }
     
     const scrollInterval = parseInt(document.getElementById('scrollInterval').value);
     
-    if (scrollInterval < 500 || scrollInterval > 10000) {
-        showMessage('❌ Scroll interval must be between 500-10000ms', 'error');
-        return;
-    }
-    
     chrome.tabs.sendMessage(tab.id, {
         action: 'startScroll',
         settings: { scrollIntervalMs: scrollInterval }
     }, (response) => {
-        if (chrome.runtime.lastError) {
-            showMessage('❌ Cannot connect to page. Try refreshing.', 'error');
-            return;
-        }
         if (response && response.success) {
-            showMessage('✅ Auto-scroll started!', 'success');
+            showMessage('Auto-scroll started!', 'success');
             updateStatus();
-        } else {
-            showMessage('❌ Failed to start scrolling', 'error');
         }
     });
 }
@@ -146,46 +117,13 @@ async function stopScrolling() {
 }
 
 async function downloadVideos() {
-    // Rate limiting check
-    const now = Date.now();
-    if (isDownloading) {
-        showMessage('⏳ Download already in progress...', 'error');
-        return;
-    }
-    if (now - lastDownloadTime < DOWNLOAD_COOLDOWN_MS) {
-        const waitTime = Math.ceil((DOWNLOAD_COOLDOWN_MS - (now - lastDownloadTime)) / 1000);
-        showMessage(`⏳ Please wait ${waitTime}s before next download`, 'error');
-        return;
-    }
-    
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
-    // Check if on TikTok
-    if (!tab || !tab.url.includes('tiktok.com')) {
-        showMessage('❌ Please navigate to a TikTok page first', 'error');
-        return;
-    }
-    
     chrome.tabs.sendMessage(tab.id, { action: 'getStatus' }, async (response) => {
-        if (chrome.runtime.lastError) {
-            showMessage('❌ Cannot connect to page. Try refreshing.', 'error');
+        if (!response || response.urls.length === 0) {
+            showMessage('No URLs collected yet', 'error');
             return;
         }
-        
-        if (!response || !response.urls || response.urls.length === 0) {
-            showMessage('❌ No URLs collected. Start scrolling first!', 'error');
-            return;
-        }
-        
-        // Check API status before sending
-        const apiOnline = await checkApiStatus();
-        if (!apiOnline) {
-            showMessage('❌ Backend server is offline. Start the server first.', 'error');
-            return;
-        }
-        
-        isDownloading = true;
-        document.getElementById('downloadBtn').disabled = true;
         
         try {
             // Extract username from current TikTok page URL or first video URL
@@ -198,7 +136,7 @@ async function downloadVideos() {
                 if (match) username = match[1];
             }
             
-            showMessage(`⏳ Sending ${response.urls.length} videos to backend...`, 'success');
+            showMessage(`Sending ${response.urls.length} videos to download...`, 'success');
             
             // Create job with username if available
             const jobData = {
@@ -209,35 +147,20 @@ async function downloadVideos() {
                 jobData.username = username;
             }
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-            
             const apiResponse = await fetch(`${apiUrl}/api/manifest/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(jobData),
-                signal: controller.signal
+                body: JSON.stringify(jobData)
             });
-            
-            clearTimeout(timeoutId);
             
             if (apiResponse.ok) {
                 const data = await apiResponse.json();
-                showMessage(`✅ Download started! Job ID: ${data.job_id?.substring(0, 8)}...`, 'success');
-                lastDownloadTime = Date.now();
+                showMessage(`✅ Download started! Folder: ${username || 'default'}`, 'success');
             } else {
-                const errorData = await apiResponse.json().catch(() => ({}));
-                showMessage(`❌ Failed: ${errorData.detail || apiResponse.statusText}`, 'error');
+                showMessage('❌ Failed to start download', 'error');
             }
         } catch (error) {
-            if (error.name === 'AbortError') {
-                showMessage('❌ Request timeout. Server may be slow.', 'error');
-            } else {
-                showMessage(`❌ Error: ${error.message}`, 'error');
-            }
-        } finally {
-            isDownloading = false;
-            document.getElementById('downloadBtn').disabled = false;
+            showMessage(`❌ Error: ${error.message}`, 'error');
         }
     });
 }

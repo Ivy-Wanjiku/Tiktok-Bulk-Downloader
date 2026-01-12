@@ -38,10 +38,11 @@ class TikTokDownloader:
             'format': 'best',
             'outtmpl': '%(id)s.%(ext)s',  # Simple template using only video ID
             'quiet': False,
-            'no_warnings': False,
+            'no_warnings': True,  # Suppress warnings including impersonation warnings
             'extract_flat': False,
             'restrictfilenames': True,  # Use only ASCII chars and avoid special characters
             'windowsfilenames': True,   # Restrict to Windows-compatible filenames
+            'trim_file_name': 200,       # Limit filename length to 200 characters
             # TikTok-specific options
             'extractor_args': {
                 'tiktok': {
@@ -53,9 +54,11 @@ class TikTokDownloader:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Referer': 'https://www.tiktok.com/',
             },
-            # Ignore errors and continue
-            'ignoreerrors': False,
+            # Continue on errors for individual videos
+            'ignoreerrors': True,
             'no_color': False,
+            # Force no playlist and direct download to avoid URL-based filenames
+            'noplaylist': True,
         }
     
     def stop_download(self):
@@ -190,12 +193,24 @@ class TikTokDownloader:
         result = {
             'username': username,
             'total_videos': 0,
+            'new_videos': 0,
+            'existing_videos': 0,
+            'downloaded_videos': 0,
             'videos': [],
             'success': False,
-            'error': None
+            'error': None,
+            'profile_exists': False
         }
         
         try:
+            # Check if profile exists in database
+            existing_profile = self.db.get_profile(username)
+            if existing_profile:
+                result['profile_exists'] = True
+                result['existing_videos'] = self.db.get_videos_by_profile(username).__len__()
+                result['downloaded_videos'] = self.db.get_videos_by_profile(username, downloaded_only=True).__len__()
+                logger.info(f"Profile @{username} found in database with {result['existing_videos']} videos ({result['downloaded_videos']} downloaded)")
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(user_url, download=False)
                 
@@ -217,17 +232,32 @@ class TikTokDownloader:
                     
                     self.db.create_or_update_profile(username, profile_data)
                     
+                    # Get existing video IDs from database
+                    existing_video_ids = set()
+                    if existing_profile:
+                        existing_videos = self.db.get_videos_by_profile(username)
+                        existing_video_ids = {v.video_id for v in existing_videos}
+                    
+                    # Track new videos found
+                    new_video_count = 0
+                    
                     # Get basic info for each video and save to database
                     for video in videos[:50]:  # Limit to first 50 for preview
                         if video:
+                            video_id = video.get('id', 'unknown')
                             video_info = {
-                                'id': video.get('id', 'unknown'),
+                                'id': video_id,
                                 'title': video.get('title', 'Untitled'),
                                 'url': video.get('url') or video.get('webpage_url', ''),
                                 'duration': video.get('duration'),
-                                'view_count': video.get('view_count')
+                                'view_count': video.get('view_count'),
+                                'is_new': video_id not in existing_video_ids
                             }
                             result['videos'].append(video_info)
+                            
+                            # Count new videos
+                            if video_id not in existing_video_ids:
+                                new_video_count += 1
                             
                             # Save video metadata to database
                             video_data = {
@@ -240,18 +270,30 @@ class TikTokDownloader:
                             }
                             
                             self.db.create_or_update_video(
-                                video_id=video_info['id'],
+                                video_id=video_id,
                                 profile_username=username,
                                 video_data=video_data
                             )
                     
-                    print(f"✅ Found {len(videos)} videos from @{username}")
+                    result['new_videos'] = new_video_count
+                    
+                    if result['profile_exists']:
+                        if new_video_count > 0:
+                            print(f"✅ Found {len(videos)} total videos from @{username} ({new_video_count} new, {result['existing_videos']} existing)")
+                            logger.info(f"Discovered {new_video_count} new videos for @{username}")
+                        else:
+                            print(f"✅ Found {len(videos)} videos from @{username} (no new videos since last check)")
+                            logger.info(f"No new videos found for @{username}")
+                    else:
+                        print(f"✅ Found {len(videos)} videos from @{username} (new profile)")
+                        logger.info(f"New profile @{username} added with {len(videos)} videos")
                 else:
                     result['error'] = 'No videos found'
         
         except Exception as e:
             result['error'] = str(e)
             print(f"❌ Error fetching videos: {str(e)}")
+            logger.error(f"Error fetching videos for @{username}: {e}")
         
         return result
     
@@ -288,40 +330,194 @@ class TikTokDownloader:
         }
         
         try:
+            # Check database FIRST before fetching from TikTok
+            existing_profile = self.db.get_profile(username)
+            existing_videos_in_db = {}
+            pending_videos_count = 0
+            already_downloaded_count = 0
+            
+            if existing_profile:
+                existing_vids = self.db.get_videos_by_profile(username)
+                existing_videos_in_db = {v.video_id: v for v in existing_vids}
+                already_downloaded_count = len([v for v in existing_vids if v.is_downloaded])
+                pending_videos_count = len([v for v in existing_vids if not v.is_downloaded and v.download_status != 'failed'])
+                
+                logger.info(f"Profile @{username} found in database: {len(existing_videos_in_db)} videos tracked, {already_downloaded_count} downloaded, {pending_videos_count} pending")
+                print(f"📊 Profile exists: {len(existing_videos_in_db)} videos tracked, {already_downloaded_count} downloaded")
+                
+                # If all videos are already downloaded, skip fetching from TikTok entirely
+                if already_downloaded_count > 0 and pending_videos_count == 0:
+                    print(f"✅ All videos already downloaded! Skipping fetch.")
+                    logger.info(f"All {already_downloaded_count} videos already downloaded for @{username}, skipping")
+                    result['total'] = already_downloaded_count
+                    result['downloaded'] = already_downloaded_count
+                    return result
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 # Extract user info and video list
                 print(f"🔍 Fetching video list for @{username}...")
+                logger.info(f"Fetching videos for @{username}")
+                
                 info = ydl.extract_info(user_url, download=False)
                 
                 if 'entries' in info:
                     videos = list(info['entries'])
                     result['total'] = len(videos)
-                    print(f"✅ Found {len(videos)} videos")
                     
-                    # Download each video
-                    for idx, video in enumerate(videos, 1):
+                    # Ensure profile exists in database
+                    profile_data = {
+                        'profile_url': user_url,
+                        'video_count': len(videos),
+                        'total_videos_found': len(videos)
+                    }
+                    if 'uploader' in info:
+                        profile_data['display_name'] = info.get('uploader')
+                    
+                    self.db.create_or_update_profile(username, profile_data)
+                    
+                    # Filter videos to download
+                    videos_to_download = []
+                    new_videos_count = 0  # Initialize counter
+                    for video in videos:
+                        video_id = video.get('id', f'unknown_{len(videos_to_download)}')
+                        
+                        # Check if already downloaded
+                        if video_id in existing_videos_in_db:
+                            existing_video = existing_videos_in_db[video_id]
+                            if existing_video.is_downloaded:
+                                print(f"⏭️  Skipping {video_id} - already downloaded")
+                                logger.debug(f"Skipping {video_id} - already downloaded")
+                                result['downloaded'] += 1  # Count as downloaded
+                                continue
+                            else:
+                                print(f"🔄 Video {video_id} exists but not downloaded, will retry")
+                                logger.info(f"Video {video_id} exists but not downloaded, will retry")
+                                new_videos_count += 1
+                        else:
+                            new_videos_count += 1
+                        
+                        videos_to_download.append(video)
+                    
+                    if new_videos_count > 0:
+                        print(f"✅ Found {len(videos)} total videos ({new_videos_count} new/pending, {already_downloaded_count} already downloaded)")
+                        logger.info(f"Will download {new_videos_count} new/pending videos")
+                    else:
+                        print(f"✅ All {len(videos)} videos already downloaded! Nothing to do.")
+                        logger.info(f"All videos for @{username} already downloaded")
+                        return result
+                    
+                    # Download each video that needs downloading
+                    for idx, video in enumerate(videos_to_download, 1):
                         # Check for stop/pause
                         if self.check_pause_stop():
                             print("\n🛑 Download stopped by user")
                             break
                         
                         try:
-                            video_url = video.get('url') or video.get('webpage_url')
+                            # Use webpage_url (clean TikTok URL) to avoid filename length issues
+                            # Don't use 'url' as it contains the direct video URL with long parameters
+                            video_url = video.get('webpage_url') or f"https://www.tiktok.com/@{username}/video/{video.get('id')}"
+                            video_id = video.get('id', f'unknown_{idx}')
+                            
                             if not video_url:
                                 continue
                             
-                            print(f"\n[{idx}/{len(videos)}] Downloading: {video.get('title', 'Unknown')}")
-                            ydl.download([video_url])
+                            # Save video metadata to database
+                            video_data = {
+                                'title': video.get('title', 'Untitled'),
+                                'description': video.get('description', ''),
+                                'video_url': video_url,
+                                'download_url': video.get('url'),
+                                'view_count': video.get('view_count'),
+                                'like_count': video.get('like_count'),
+                                'comment_count': video.get('comment_count'),
+                                'share_count': video.get('repost_count'),
+                                'duration': video.get('duration'),
+                                'width': video.get('width'),
+                                'height': video.get('height'),
+                                'format': video.get('ext', 'mp4'),
+                                'upload_date': datetime.fromtimestamp(video.get('timestamp', 0)) if video.get('timestamp') else None,
+                                'download_status': 'pending',
+                            }
+                            self.db.create_or_update_video(video_id, username, video_data)
+                            
+                            # Check for duplicates
+                            ext = video.get('ext', 'mp4')
+                            expected_file = output_path / f"{video_id}.{ext}"
+                            
+                            # Check if video is already downloaded (file exists and in database)
+                            if video_id in existing_videos_in_db and existing_videos_in_db[video_id].is_downloaded:
+                                print(f"✅ [{idx}/{len(videos_to_download)}] Already Downloaded: {video.get('title', 'Unknown')} (ID: {video_id})")
+                                logger.info(f"Video {video_id} already downloaded, skipping")
+                                result['downloaded'] += 1
+                                continue
+                            
+                            if expected_file.exists():
+                                if self._is_duplicate(str(expected_file)):
+                                    print(f"⏭️  [{idx}/{len(videos_to_download)}] Skipping duplicate file: {video_id}")
+                                    self.db.mark_video_skipped(video_id)
+                                    result['downloaded'] += 1  # Count as downloaded
+                                    continue
+                            
+                            # Determine if new or retry
+                            if video_id in existing_videos_in_db:
+                                print(f"\n🔄 [{idx}/{len(videos_to_download)}] Retrying: {video.get('title', 'Unknown')} (ID: {video_id})")
+                            else:
+                                print(f"\n📥 [{idx}/{len(videos_to_download)}] New Download: {video.get('title', 'Unknown')} (ID: {video_id})")
+                            
+                            # Download with retry
+                            success, error_msg = self._download_with_retry(ydl, video_url)
+                            
+                            if not success:
+                                # Don't raise, just log and continue
+                                print(f"⚠️  Failed to download video {idx} after retries: {error_msg}")
+                                logger.warning(f"Video {video_id} failed after retries: {error_msg}")
+                                try:
+                                    self.db.mark_video_failed(video_id, error_msg)
+                                except:
+                                    pass
+                                result['failed'] += 1
+                                continue
+                            
+                            # Mark as downloaded in database
+                            if expected_file.exists():
+                                file_hash = self._calculate_file_hash(str(expected_file))
+                                if file_hash:
+                                    self.downloaded_hashes.add(file_hash)
+                                    self.db.mark_video_downloaded(
+                                        video_id=video_id,
+                                        file_path=str(expected_file),
+                                        file_hash=file_hash
+                                    )
+                            
                             result['downloaded'] += 1
+                            logger.info(f"Successfully downloaded video {video_id}")
                         except Exception as e:
-                            print(f"❌ Failed to download video {idx}: {str(e)}")
+                            error_msg = str(e)
+                            print(f"❌ Failed to download video {idx}: {error_msg}")
+                            logger.error(f"Download failed for video {idx}: {error_msg}")
+                            # Mark as failed in database
+                            try:
+                                self.db.mark_video_failed(video_id, error_msg)
+                            except:
+                                pass
                             result['failed'] += 1
+                            
+                            # Clean up partial downloads
+                            try:
+                                for part_file in output_path.glob(f"{video_id}*.part"):
+                                    part_file.unlink()
+                                    logger.info(f"Cleaned up partial file: {part_file}")
+                            except Exception as cleanup_error:
+                                logger.warning(f"Failed to clean up partial file: {cleanup_error}")
                 else:
                     print("⚠️  No videos found")
         
         except Exception as e:
             print(f"❌ Error downloading from @{username}: {str(e)}")
-            result['failed'] = result.get('total', 0)
+            logger.error(f"Error downloading from @{username}: {e}")
+            # Don't mark all as failed - keep the actual counts
+            # result['failed'] is already tracking individual failures
         
         print(f"\n✅ Download complete!")
         print(f"   Total: {result['total']}")

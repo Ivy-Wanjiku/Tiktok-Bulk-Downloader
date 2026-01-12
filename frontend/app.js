@@ -3,6 +3,7 @@ const API_BASE_URL = 'http://localhost:3000/api';
 
 let currentTab = 'download';
 let jobsRefreshInterval = null;
+let lastJobsData = null; // Cache to prevent unnecessary re-renders
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -130,18 +131,48 @@ async function downloadFromUrls() {
 }
 
 // Jobs Management
-async function loadJobs() {
+async function loadJobs(forceRefresh = false) {
     const jobsList = document.getElementById('jobs-list');
-    jobsList.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading jobs...</p></div>';
+    
+    // Show loading only on first load
+    if (!lastJobsData || forceRefresh) {
+        jobsList.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading jobs...</p></div>';
+    }
     
     try {
         const response = await fetch(`${API_BASE_URL}/manifest`);
         const data = await response.json();
         
+        // Check if data actually changed to avoid unnecessary re-renders
+        const dataString = JSON.stringify(data.jobs);
+        if (lastJobsData === dataString && !forceRefresh) {
+            return; // No changes, skip re-render
+        }
+        lastJobsData = dataString;
+        
         if (data.jobs && data.jobs.length > 0) {
-            jobsList.innerHTML = '<div class="jobs-list">' + 
-                data.jobs.map(job => renderJob(job)).join('') + 
-                '</div>';
+            // Update existing jobs or create new list
+            const existingList = jobsList.querySelector('.jobs-list');
+            if (existingList) {
+                // Update each job card individually
+                data.jobs.forEach((job, index) => {
+                    const jobCard = document.getElementById(`job-${job.job_id}`);
+                    if (jobCard) {
+                        // Update only dynamic content
+                        updateJobCard(jobCard, job);
+                    } else {
+                        // New job, add it at the top
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = renderJob(job);
+                        existingList.insertBefore(tempDiv.firstElementChild, existingList.firstChild);
+                    }
+                });
+            } else {
+                // First render
+                jobsList.innerHTML = '<div class="jobs-list">' + 
+                    data.jobs.map(job => renderJob(job)).join('') + 
+                    '</div>';
+            }
         } else {
             jobsList.innerHTML = `
                 <div class="empty-state">
@@ -164,11 +195,79 @@ async function loadJobs() {
                 </div>
                 <h3>Failed to load jobs</h3>
                 <p>${error.message}</p>
-                <button onclick="loadJobs()" style="margin-top: 20px;">
+                <button onclick="loadJobs(true)" style="margin-top: 20px;">
                     <i class="fas fa-sync-alt"></i> Retry
                 </button>
             </div>
         `;
+    }
+}
+
+// Update only dynamic parts of a job card to prevent flickering
+function updateJobCard(jobCard, job) {
+    const progress = job.total_videos > 0 
+        ? Math.round((job.downloaded / job.total_videos) * 100)
+        : 0;
+    
+    // Update status badge
+    const statusBadge = jobCard.querySelector('.status-badge');
+    if (statusBadge) {
+        statusBadge.className = `status-badge status-${job.status}`;
+        const statusIcons = {
+            'pending': 'fa-clock',
+            'downloading': 'fa-spinner fa-spin',
+            'paused': 'fa-pause',
+            'stopped': 'fa-stop',
+            'completed': 'fa-check',
+            'failed': 'fa-times'
+        };
+        const icon = statusIcons[job.status] || 'fa-question';
+        statusBadge.innerHTML = `<i class="fas ${icon}"></i> ${job.status}`;
+    }
+    
+    // Update progress bar
+    const progressFill = jobCard.querySelector('.progress-fill');
+    if (progressFill) {
+        progressFill.style.width = `${progress}%`;
+    }
+    
+    const progressText = jobCard.querySelector('.progress-text');
+    if (progressText) {
+        progressText.textContent = `${job.downloaded} / ${job.total_videos} videos (${progress}%)`;
+    }
+    
+    // Update control buttons if status changed
+    const controlsDiv = jobCard.querySelector('.job-controls');
+    if (controlsDiv) {
+        let newButtons = '';
+        if (job.status === 'downloading') {
+            newButtons = `
+                <button onclick="pauseJob('${job.job_id}')" class="control-btn pause-btn">
+                    <i class="fas fa-pause"></i> Pause
+                </button>
+                <button onclick="stopJob('${job.job_id}')" class="control-btn stop-btn">
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+            `;
+        } else if (job.status === 'paused') {
+            newButtons = `
+                <button onclick="resumeJob('${job.job_id}')" class="control-btn resume-btn">
+                    <i class="fas fa-play"></i> Resume
+                </button>
+                <button onclick="stopJob('${job.job_id}')" class="control-btn stop-btn">
+                    <i class="fas fa-stop"></i> Stop
+                </button>
+            `;
+        } else if (job.status === 'failed' || job.status === 'stopped') {
+            newButtons = `
+                <button onclick="retryJob('${job.job_id}')" class="control-btn resume-btn">
+                    <i class="fas fa-redo"></i> Retry
+                </button>
+            `;
+        }
+        if (controlsDiv.innerHTML.trim() !== newButtons.trim()) {
+            controlsDiv.innerHTML = newButtons;
+        }
     }
 }
 
@@ -220,7 +319,7 @@ function renderJob(job) {
     }
     
     return `
-        <div class="job-item">
+        <div class="job-item" id="job-${job.job_id}">
             <div class="job-header">
                 <div class="job-title-section">
                     <div class="job-name">
@@ -233,7 +332,7 @@ function renderJob(job) {
                         ${job.username ? `<span style="margin-left: 12px;"><i class="fas fa-user"></i> @${job.username}</span>` : ''}
                     </div>
                 </div>
-                <div class="job-status ${statusClass}">
+                <div class="job-status ${statusClass} status-badge">
                     <i class="fas ${statusIcon}"></i>
                     ${job.status.toUpperCase()}
                 </div>
@@ -242,7 +341,7 @@ function renderJob(job) {
             ${job.total_videos > 0 && (job.status === 'downloading' || job.status === 'paused') ? `
                 <div class="job-progress">
                     <div class="progress-bar-container">
-                        <div class="progress-bar" style="width: ${progress}%"></div>
+                        <div class="progress-bar progress-fill" style="width: ${progress}%"></div>
                     </div>
                     <div class="progress-text">
                         <span>${progress}% Complete</span>
@@ -311,14 +410,52 @@ async function previewUser() {
         const data = await response.json();
         
         if (response.ok) {
+            // Build status message
+            let statusMessage = '';
+            let statusIcon = 'fa-video';
+            let statusColor = 'var(--text-secondary)';
+            
+            if (data.profile_exists) {
+                if (data.new_videos > 0) {
+                    statusMessage = `${data.new_videos} new video${data.new_videos !== 1 ? 's' : ''} found! (${data.downloaded_videos} already downloaded)`;
+                    statusIcon = 'fa-sparkles';
+                    statusColor = '#00f2ea';
+                } else {
+                    statusMessage = `All ${data.total_videos} videos already tracked (${data.downloaded_videos} downloaded)`;
+                    statusIcon = 'fa-check-circle';
+                    statusColor = '#4ade80';
+                }
+            } else {
+                statusMessage = `New profile: ${data.total_videos} videos discovered`;
+                statusIcon = 'fa-user-plus';
+                statusColor = '#00f2ea';
+            }
+            
             previewContent.innerHTML = `
                 <div class="preview-header">
                     <div>
                         <h4 style="margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
                             <i class="fas fa-user"></i> @${data.username}
                         </h4>
-                        <div class="preview-count">
-                            <i class="fas fa-video"></i> ${data.total_videos} Videos
+                        <div class="preview-status" style="color: ${statusColor}; font-size: 0.95em; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                            <i class="fas ${statusIcon}"></i>
+                            <strong>${statusMessage}</strong>
+                        </div>
+                        <div class="preview-stats" style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 16px;">
+                            <div class="stat-item" style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 0.9em;">
+                                <i class="fas fa-video"></i>
+                                <span>${data.total_videos} Total</span>
+                            </div>
+                            ${data.profile_exists ? `
+                                <div class="stat-item" style="display: flex; align-items: center; gap: 6px; color: #00f2ea; font-size: 0.9em;">
+                                    <i class="fas fa-sparkles"></i>
+                                    <span>${data.new_videos} New</span>
+                                </div>
+                                <div class="stat-item" style="display: flex; align-items: center; gap: 6px; color: #4ade80; font-size: 0.9em;">
+                                    <i class="fas fa-check"></i>
+                                    <span>${data.downloaded_videos} Downloaded</span>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
@@ -326,12 +463,16 @@ async function previewUser() {
                 ${data.videos && data.videos.length > 0 ? `
                     <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 0.9em;">
                         <i class="fas fa-info-circle"></i> Showing first ${data.videos.length} videos
+                        ${data.new_videos > 0 && data.profile_exists ? `<span style="color: #00f2ea;"> • ${data.new_videos} new</span>` : ''}
                     </p>
                     <div class="video-list">
                         ${data.videos.map((v, i) => `
-                            <div class="video-item">
+                            <div class="video-item" style="${v.is_new ? 'border-left: 3px solid #00f2ea; padding-left: 12px;' : ''}">
                                 <div class="video-number">${i + 1}.</div>
-                                <div class="video-title">${v.title}</div>
+                                <div class="video-title">
+                                    ${v.is_new ? '<span style="color: #00f2ea; font-size: 0.8em; margin-right: 6px;"><i class="fas fa-sparkles"></i> NEW</span>' : ''}
+                                    ${v.title}
+                                </div>
                                 ${v.view_count ? `
                                     <div class="video-views">
                                         <i class="fas fa-eye"></i>
@@ -344,10 +485,16 @@ async function previewUser() {
                 ` : ''}
                 
                 <div class="button-group" style="margin-top: 20px;">
-                    <button onclick="downloadFromUser()">
-                        <i class="fas fa-download"></i> Download All ${data.total_videos} Videos
-                    </button>
-                    <button onclick="downloadSelectedFromPreview()" class="secondary">
+                    ${data.new_videos > 0 || !data.profile_exists ? `
+                        <button onclick="downloadFromUser()">
+                            <i class="fas fa-download"></i> Download ${data.new_videos > 0 ? `${data.new_videos} New Video${data.new_videos !== 1 ? 's' : ''}` : `All ${data.total_videos} Videos`}
+                        </button>
+                    ` : `
+                        <button onclick="downloadFromUser()">
+                            <i class="fas fa-sync-alt"></i> Re-download (${data.total_videos} videos)
+                        </button>
+                    `}
+                    <button onclick="closePreview()" class="secondary">
                         <i class="fas fa-list"></i> Select URLs to Download
                     </button>
                 </div>

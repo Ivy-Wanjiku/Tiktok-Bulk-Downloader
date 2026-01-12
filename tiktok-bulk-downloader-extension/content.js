@@ -1,8 +1,6 @@
 // TikTok Auto-Scroll Content Script
 // This runs on all TikTok pages and handles automatic scrolling
 
-const DEBUG = false; // Set to true for debug logging
-
 let isScrolling = false;
 let scrollInterval = null;
 let collectedUrls = new Set();
@@ -40,7 +38,7 @@ function startAutoScroll(userSettings) {
     isScrolling = true;
     settings = { ...settings, ...userSettings };
     
-    if (DEBUG) console.log('🚀 TikTok Auto-Scroll Started');
+    console.log('🚀 TikTok Auto-Scroll Started');
     
     // Collect initial URLs
     collectVideoUrls();
@@ -58,7 +56,7 @@ function startAutoScroll(userSettings) {
         // Collect URLs after scroll
         setTimeout(() => {
             const newUrls = collectVideoUrls();
-            if (DEBUG) console.log(`📊 Scroll #${scrollCount} | Total URLs: ${collectedUrls.size} | New: ${newUrls}`);
+            console.log(`📊 Scroll #${scrollCount} | Total URLs: ${collectedUrls.size} | New: ${newUrls}`);
             
             // Update badge
             chrome.runtime.sendMessage({
@@ -125,7 +123,7 @@ function collectVideoUrls() {
 if (window.location.hostname === 'www.tiktok.com') {
     setTimeout(() => {
         collectVideoUrls();
-        if (DEBUG) console.log(`📋 Initial collection: ${collectedUrls.size} URLs`);
+        console.log(`📋 Initial collection: ${collectedUrls.size} URLs`);
     }, 2000);
 }
 

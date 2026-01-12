@@ -2,17 +2,17 @@
 
 ## Installation Instructions
 
-### Chrome/Edge:
+### Chrome/Edge/Brave:
 1. Open Chrome/Edge and go to `chrome://extensions/`
 2. Enable "Developer mode" (toggle in top right)
 3. Click "Load unpacked"
-4. Select the `tiktok-bulk-downloader` folder
+4. Select the `extension` folder (NOT the root folder)
 5. The extension is now installed!
 
 ### Firefox:
 1. Open Firefox and go to `about:debugging#/runtime/this-firefox`
 2. Click "Load Temporary Add-on"
-3. Navigate to the `tiktok-bulk-downloader` folder
+3. Navigate to the `extension` folder
 4. Select the `manifest.json` file
 5. The extension is now installed!
 
