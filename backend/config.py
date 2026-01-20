@@ -22,7 +22,7 @@ API_PORT = int(os.getenv("API_PORT", 3000))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 # Security Configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080,http://0.0.0.0:8080").split(",")
 ENABLE_AUTH = os.getenv("ENABLE_AUTH", "false").lower() == "true"
 API_KEY = os.getenv("API_KEY", None)
 
