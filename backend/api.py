@@ -629,15 +629,18 @@ async def get_video(video_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
+    import os
+    port = int(os.getenv("PORT", API_PORT))  # Render uses PORT env variable
+    
     print(f"🚀 Starting TikTok Bulk Downloader API")
     print(f"📁 Downloads directory: {DOWNLOADS_DIR}")
     print(f"📋 Manifest file: {MANIFEST_FILE}")
-    print(f"🌐 API will be available at: http://{API_HOST}:{API_PORT}")
-    print(f"\n📖 API Documentation: http://localhost:{API_PORT}/docs")
+    print(f"🌐 API will be available at: http://{API_HOST}:{port}")
+    print(f"\n📖 API Documentation: http://localhost:{port}/docs")
     
     uvicorn.run(
         app,
-        host=API_HOST,
-        port=API_PORT,
+        host="0.0.0.0",  # Required for Render
+        port=port,
         log_level="info"
     )

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: tiktok-bulk-downloader
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python api.py
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: ALLOWED_ORIGINS
+        value: "*"  # Change this to your frontend URL in production
+      - key: MAX_CONCURRENT_DOWNLOADS
+        value: "2"
+      - key: JOB_TIMEOUT_HOURS
+        value: "2"

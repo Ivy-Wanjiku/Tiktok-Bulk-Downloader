@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TikTok Bulk Downloader",
-  "version": "1.0.0",
-  "description": "Bulk download TikTok videos from user profiles with auto-scroll and smart duplicate detection",
+  "version": "1.0.1",
+  "description": "Bulk download TikTok videos from user profiles with auto-scroll and smart duplicate detection. Features demo mode for easy testing without backend setup.",
   "author": "Joombah",
   "homepage_url": "https://github.com/Joombah/Tiktok-Bulk-Downloader",
   "permissions": [
@@ -17,6 +17,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
+    "default_title": "TikTok Bulk Downloader - Click to open (includes demo mode)",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",

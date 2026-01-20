@@ -5,10 +5,12 @@ let apiUrl = 'http://localhost:3000';
 let isDownloading = false;
 let lastDownloadTime = 0;
 const DOWNLOAD_COOLDOWN_MS = 2000; // 2 second cooldown between downloads
+let demoMode = false; // Demo mode for testing without backend
+let demoUrls = []; // Simulated collected URLs in demo mode
 
 document.addEventListener('DOMContentLoaded', async () => {
     // Load saved settings
-    const settings = await chrome.storage.local.get(['scrollInterval', 'apiUrl']);
+    const settings = await chrome.storage.local.get(['scrollInterval', 'apiUrl', 'demoMode']);
     if (settings.scrollInterval) {
         document.getElementById('scrollInterval').value = settings.scrollInterval;
     }
@@ -18,6 +20,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
         // Set default value in UI
         document.getElementById('apiUrl').value = apiUrl;
+    }
+    
+    // Check if demo mode is enabled
+    if (settings.demoMode) {
+        demoMode = true;
+        document.getElementById('demoModeToggle').checked = true;
+        toggleDemoMode(true);
     }
     
     // Check API status
@@ -31,6 +40,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('stopBtn').addEventListener('click', stopScrolling);
     document.getElementById('downloadBtn').addEventListener('click', downloadVideos);
     document.getElementById('clearBtn').addEventListener('click', clearUrls);
+    document.getElementById('demoModeToggle').addEventListener('change', (e) => {
+        toggleDemoMode(e.target.checked);
+    });
+    document.getElementById('setupGuideBtn').addEventListener('click', showSetupGuide);
     
     // Save settings on change
     document.getElementById('scrollInterval').addEventListener('change', saveSettings);
@@ -40,7 +53,63 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(updateStatus, 2000);
 });
 
+function toggleDemoMode(enabled) {
+    demoMode = enabled;
+    chrome.storage.local.set({ demoMode: enabled });
+    
+    if (enabled) {
+        document.getElementById('apiStatus').textContent = '🎭 Demo Mode';
+        document.getElementById('apiStatus').style.color = '#ff9800';
+        document.getElementById('demoInfo').style.display = 'block';
+        showMessage('✅ Demo mode enabled - test without backend', 'success');
+    } else {
+        document.getElementById('demoInfo').style.display = 'none';
+        checkApiStatus();
+    }
+}
+
+function showSetupGuide() {
+    const guide = `🚀 SETUP GUIDE FOR REVIEWERS
+
+📝 Option 1: Demo Mode (No Backend Required)
+1. Enable "Demo Mode" toggle
+2. Visit any TikTok profile page
+3. Click "Start Auto-Scroll" to simulate collection
+4. Click "Stop Scrolling" after a few seconds
+5. Click "Download Videos" to see demo success
+
+🖥️ Option 2: Full Backend Setup
+1. Download/clone: github.com/Joombah/Tiktok-Bulk-Downloader
+2. Open terminal in project folder
+3. Run: python3 -m venv venv && source venv/bin/activate
+4. Run: pip install -r backend/requirements.txt
+5. Run: python backend/api.py
+6. Backend runs at http://localhost:3000
+7. Use extension normally
+
+📋 Testing Instructions:
+• Navigate to: tiktok.com/@downykenya
+• Click extension icon in toolbar
+• Follow Option 1 or Option 2 above
+
+✅ Expected behavior:
+• Extension collects video URLs as you scroll
+• Counter shows collected videos
+• Download button sends to backend (or demo)
+• Status updates in real-time
+
+📧 Support: github.com/Joombah/Tiktok-Bulk-Downloader/issues`;
+    
+    alert(guide);
+}
+
 async function checkApiStatus() {
+    if (demoMode) {
+        document.getElementById('apiStatus').textContent = '🎭 Demo Mode';
+        document.getElementById('apiStatus').style.color = '#ff9800';
+        return true;
+    }
+    
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -117,6 +186,13 @@ async function startScrolling() {
         return;
     }
     
+    // Demo mode simulation
+    if (demoMode) {
+        showMessage('✅ Demo: Auto-scroll started!', 'success');
+        simulateDemoCollection();
+        return;
+    }
+    
     chrome.tabs.sendMessage(tab.id, {
         action: 'startScroll',
         settings: { scrollIntervalMs: scrollInterval }
@@ -134,6 +210,27 @@ async function startScrolling() {
     });
 }
 
+function simulateDemoCollection() {
+    // Simulate collecting URLs in demo mode
+    demoUrls = [];
+    let count = 0;
+    const maxUrls = 15;
+    
+    const interval = setInterval(() => {
+        if (count >= maxUrls) {
+            clearInterval(interval);
+            showMessage(`✅ Demo: Collected ${maxUrls} videos. Click "Download Videos" to test.`, 'success');
+            document.getElementById('downloadBtn').style.display = 'block';
+            return;
+        }
+        
+        count++;
+        demoUrls.push(`https://www.tiktok.com/@demo_user/video/demo_video_${count}`);
+        document.getElementById('urlCount').textContent = count;
+        document.getElementById('scrollCount').textContent = count;
+    }, 300);
+}
+
 async function stopScrolling() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
@@ -146,6 +243,20 @@ async function stopScrolling() {
 }
 
 async function downloadVideos() {
+    // Demo mode simulation
+    if (demoMode) {
+        if (demoUrls.length === 0) {
+            showMessage('❌ Demo: No URLs collected. Click "Start Auto-Scroll" first!', 'error');
+            return;
+        }
+        
+        showMessage(`✅ Demo: Successfully sent ${demoUrls.length} videos to backend (simulated)`, 'success');
+        setTimeout(() => {
+            showMessage('✅ Demo: Job created with ID: demo-12345678', 'success');
+        }, 1000);
+        return;
+    }
+    
     // Rate limiting check
     const now = Date.now();
     if (isDownloading) {

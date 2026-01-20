@@ -151,10 +151,70 @@
             border-radius: 4px;
             font-size: 13px;
         }
+        
+        .demo-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            background: #fff3cd;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 12px;
+        }
+        
+        .demo-toggle label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            color: #856404;
+            font-weight: 600;
+        }
+        
+        .demo-toggle input[type="checkbox"] {
+            margin-left: 8px;
+            cursor: pointer;
+        }
+        
+        .demo-info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 6px;
+            padding: 8px;
+            margin-bottom: 10px;
+            font-size: 11px;
+            color: #0c5460;
+            display: none;
+        }
+        
+        .setup-guide-btn {
+            background: #17a2b8;
+            color: white;
+            font-size: 12px;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .setup-guide-btn:hover {
+            background: #138496;
+        }
     </style>
 </head>
 <body>
     <h2>🎵 TikTok Bulk Downloader</h2>
+    
+    <button id="setupGuideBtn" class="setup-guide-btn">📖 Setup Guide for Reviewers</button>
+    
+    <div class="demo-toggle">
+        <label>
+            🎭 Demo Mode (Test without backend)
+            <input type="checkbox" id="demoModeToggle">
+        </label>
+    </div>
+    
+    <div id="demoInfo" class="demo-info">
+        ℹ️ Demo mode enabled: Extension will simulate functionality without requiring a backend server. Perfect for testing!
+    </div>
     
     <div id="status" class="status idle">
         <strong>Status:</strong> <span id="statusText">Idle</span>
