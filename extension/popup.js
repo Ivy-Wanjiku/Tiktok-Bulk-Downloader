@@ -1,7 +1,7 @@
 // Extension popup script
 
-// Default API URL - users can change this in settings
-let apiUrl = 'http://localhost:3000';
+// Default API URL - Now includes deployed backend!
+let apiUrl = 'https://tiktok-bulk-downloader.onrender.com';
 let isDownloading = false;
 let lastDownloadTime = 0;
 const DOWNLOAD_COOLDOWN_MS = 2000; // 2 second cooldown between downloads
@@ -71,31 +71,41 @@ function toggleDemoMode(enabled) {
 function showSetupGuide() {
     const guide = `🚀 SETUP GUIDE FOR REVIEWERS
 
-📝 Option 1: Demo Mode (No Backend Required)
+📝 Option 1: Demo Mode (No Backend Required - FASTEST!)
 1. Enable "Demo Mode" toggle
 2. Visit any TikTok profile page
 3. Click "Start Auto-Scroll" to simulate collection
 4. Click "Stop Scrolling" after a few seconds
 5. Click "Download Videos" to see demo success
 
-🖥️ Option 2: Full Backend Setup
+🌐 Option 2: Use Live Backend (RECOMMENDED!)
+✅ Backend is already deployed and running!
+✅ API URL: https://tiktok-bulk-downloader.onrender.com
+1. Keep "Demo Mode" DISABLED
+2. API URL is pre-configured (see settings below)
+3. Visit any TikTok profile: tiktok.com/@tiktok
+4. Click "Start Auto-Scroll" (collects real URLs)
+5. Click "Stop Scrolling" after collecting
+6. Click "Download Videos" (sends to live backend)
+Note: First request may take 30s (free tier warm-up)
+
+🖥️ Option 3: Local Backend Setup (Advanced)
 1. Download/clone: github.com/Joombah/Tiktok-Bulk-Downloader
 2. Open terminal in project folder
 3. Run: python3 -m venv venv && source venv/bin/activate
 4. Run: pip install -r backend/requirements.txt
 5. Run: python backend/api.py
-6. Backend runs at http://localhost:3000
-7. Use extension normally
+6. Change API URL to: http://localhost:3000
 
 📋 Testing Instructions:
-• Navigate to: tiktok.com/@downykenya
+• Navigate to: tiktok.com/@tiktok
 • Click extension icon in toolbar
-• Follow Option 1 or Option 2 above
+• Choose any option above
 
 ✅ Expected behavior:
 • Extension collects video URLs as you scroll
 • Counter shows collected videos
-• Download button sends to backend (or demo)
+• Download button sends to backend
 • Status updates in real-time
 
 📧 Support: github.com/Joombah/Tiktok-Bulk-Downloader/issues`;
