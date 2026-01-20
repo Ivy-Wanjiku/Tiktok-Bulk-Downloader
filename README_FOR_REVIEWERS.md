@@ -6,20 +6,31 @@ Thank you for reviewing **TikTok Bulk Downloader v1.0.1**
 
 ## ⚡ Quick Start Testing (90 Seconds)
 
-**No backend setup required!** We've added Demo Mode specifically for easy testing:
+**✅ NEW: Live Backend Available - No Setup Required!**
 
-### Test Right Now:
+The extension now comes with a **pre-configured live backend API**, making it instantly testable!
+
+### Method 1: Use Live Backend (RECOMMENDED - Most Realistic)
 1. **Install** the extension in Microsoft Edge
 2. **Visit** https://www.tiktok.com/@tiktok (or any TikTok profile)
-3. **Click** the extension icon in the toolbar
-4. **Enable** the "🎭 Demo Mode" toggle at the top
-5. **Click** "🚀 Start Auto-Scroll"
-6. **Wait** 5-10 seconds (watch the counter increase)
-7. **Click** "⏹️ Stop Scrolling"
-8. **Click** "📥 Download Videos"
-9. **See** success message! ✅
+3. **Click** the extension icon in toolbar
+4. **Verify** API URL is set to: `https://tiktok-bulk-downloader.onrender.com`
+5. **Click** "Start Auto-Scroll" (collects real TikTok URLs)
+6. **Wait** 10-15 seconds (collect 10-20 URLs)
+7. **Click** "Stop Scrolling"
+8. **Click** "Download Videos" (sends to live backend)
+9. **See** success message with real Job ID! ✅
 
-That's it! All features are now testable without any external setup.
+**Note**: First request may take 30 seconds (free tier server wake-up). Subsequent requests are instant.
+
+### Method 2: Demo Mode (Fastest - Simulated)
+1. **Install** the extension in Microsoft Edge
+2. **Visit** https://www.tiktok.com/@tiktok (or any TikTok profile)
+3. **Click** the extension icon in toolbar
+4. **Enable** the "🎭 Demo Mode" toggle
+5. **Click** "Start Auto-Scroll" (watch counter go 0→15)
+6. **Click** "Download Videos" (see success message)
+7. ✅ Done!
 
 ---
 
