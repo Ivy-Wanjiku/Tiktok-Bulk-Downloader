@@ -379,6 +379,11 @@ class TikTokDownloader:
                     videos_to_download = []
                     new_videos_count = 0  # Initialize counter
                     for video in videos:
+                        # Skip if video is None or empty
+                        if not video or not isinstance(video, dict):
+                            logger.warning(f"Skipping invalid video entry: {video}")
+                            continue
+                        
                         video_id = video.get('id', f'unknown_{len(videos_to_download)}')
                         
                         # Check if already downloaded
@@ -412,6 +417,18 @@ class TikTokDownloader:
                         if self.check_pause_stop():
                             print("\n🛑 Download stopped by user")
                             break
+                        
+                        # Safety check for None video
+                        if not video or not isinstance(video, dict):
+                            logger.warning(f"Skipping invalid video at index {idx}: video is {type(video)}")
+                            result['failed'] += 1
+                            continue
+                        
+                        # Safety check for video with no data (yt-dlp extraction failed)
+                        if not video.get('id'):
+                            logger.warning(f"Skipping video at index {idx}: no video ID (extraction likely failed)")
+                            result['failed'] += 1
+                            continue
                         
                         try:
                             # Use webpage_url (clean TikTok URL) to avoid filename length issues
