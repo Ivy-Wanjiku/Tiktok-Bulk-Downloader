@@ -16,6 +16,7 @@ from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator, Field
 import uvicorn
@@ -626,6 +627,108 @@ async def get_video(video_id: str):
         }
     except Exception as e:
         logger.error(f"Failed to get video {video_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# File Download Endpoints
+@app.get("/api/downloads")
+async def list_downloads():
+    """List all downloaded files organized by username"""
+    try:
+        downloads = {}
+        if not DOWNLOADS_DIR.exists():
+            return {"downloads": {}, "total_files": 0}
+        
+        for user_dir in DOWNLOADS_DIR.iterdir():
+            if user_dir.is_dir():
+                files = []
+                for file in user_dir.iterdir():
+                    if file.is_file():
+                        stat = file.stat()
+                        files.append({
+                            "filename": file.name,
+                            "size": stat.st_size,
+                            "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "download_url": f"/api/downloads/{user_dir.name}/{file.name}"
+                        })
+                if files:
+                    downloads[user_dir.name] = {
+                        "files": files,
+                        "count": len(files),
+                        "total_size_mb": round(sum(f["size"] for f in files) / (1024 * 1024), 2)
+                    }
+        
+        total_files = sum(d["count"] for d in downloads.values())
+        return {
+            "downloads": downloads,
+            "total_users": len(downloads),
+            "total_files": total_files
+        }
+    except Exception as e:
+        logger.error(f"Failed to list downloads: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/downloads/{username}")
+async def list_user_downloads(username: str):
+    """List all downloaded files for a specific username"""
+    try:
+        user_dir = DOWNLOADS_DIR / username
+        if not user_dir.exists():
+            raise HTTPException(status_code=404, detail=f"No downloads found for user: {username}")
+        
+        files = []
+        for file in user_dir.iterdir():
+            if file.is_file():
+                stat = file.stat()
+                files.append({
+                    "filename": file.name,
+                    "size": stat.st_size,
+                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "download_url": f"/api/downloads/{username}/{file.name}"
+                })
+        
+        return {
+            "username": username,
+            "files": files,
+            "count": len(files),
+            "total_size_mb": round(sum(f["size"] for f in files) / (1024 * 1024), 2)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list downloads for {username}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/downloads/{username}/{filename}")
+async def download_file(username: str, filename: str):
+    """Download a specific video file"""
+    try:
+        # Validate username to prevent path traversal
+        if not re.match(USERNAME_PATTERN, username):
+            raise HTTPException(status_code=400, detail="Invalid username format")
+        
+        file_path = DOWNLOADS_DIR / username / filename
+        
+        # Security check: ensure file is within downloads directory
+        if not str(file_path.resolve()).startswith(str(DOWNLOADS_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        if not file_path.is_file():
+            raise HTTPException(status_code=400, detail="Not a file")
+        
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="video/mp4"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download file {username}/{filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
