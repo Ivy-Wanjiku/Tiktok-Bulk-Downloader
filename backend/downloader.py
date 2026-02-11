@@ -15,6 +15,8 @@ from datetime import datetime
 import yt_dlp
 from tqdm import tqdm
 import threading
+import fcntl
+import time
 
 from db_service import db_service
 from config import MAX_RETRY_ATTEMPTS, RETRY_DELAYS
@@ -46,19 +48,36 @@ class TikTokDownloader:
             # TikTok-specific options
             'extractor_args': {
                 'tiktok': {
-                    'api_hostname': 'api22-normal-c-useast2a.tiktokv.com',
+                    'api_hostname': 'api.tiktok.com',  # Try main API endpoint
+                    'web_access_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'webpage_download': False,  # Disable webpage download for profiles
                 }
             },
-            # Add user agent to avoid detection
+            # Add comprehensive headers to avoid bot detection
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
                 'Referer': 'https://www.tiktok.com/',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
             },
             # Continue on errors for individual videos
             'ignoreerrors': True,
             'no_color': False,
             # Force no playlist and direct download to avoid URL-based filenames
             'noplaylist': True,
+            # CRITICAL: Disable concurrent downloads to prevent race conditions
+            'concurrent_fragment_downloads': 1,
+            # Prevent partial file corruption
+            'noprogress': False,
+            # Add retries at yt-dlp level
+            'retries': 3,
+            'fragment_retries': 3,
+            # Add socket timeout
+            'socket_timeout': 30,
         }
     
     def stop_download(self):
@@ -135,6 +154,54 @@ class TikTokDownloader:
         # Return True if should stop
         return self.is_stopped
     
+    def _acquire_download_lock(self, video_id: str, lock_dir: Path) -> Optional[object]:
+        """
+        Acquire an exclusive file lock for downloading a specific video.
+        Prevents multiple processes/threads from downloading the same video simultaneously.
+        
+        Returns: file object if lock acquired, None otherwise
+        """
+        lock_file = lock_dir / f".{video_id}.lock"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Open lock file
+            lock_fd = open(lock_file, 'w')
+            
+            # Try to acquire exclusive non-blocking lock
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            
+            # Write timestamp for debugging
+            lock_fd.write(f"{datetime.now().isoformat()}\n")
+            lock_fd.flush()
+            
+            logger.debug(f"Acquired download lock for video {video_id}")
+            return lock_fd
+        except (IOError, OSError) as e:
+            # Lock already held by another process
+            logger.info(f"Video {video_id} is already being downloaded by another process, skipping")
+            try:
+                lock_fd.close()
+            except:
+                pass
+            return None
+    
+    def _release_download_lock(self, lock_fd: object, video_id: str, lock_dir: Path):
+        """Release the download lock and clean up lock file"""
+        if lock_fd:
+            try:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                lock_fd.close()
+                
+                # Remove lock file
+                lock_file = lock_dir / f".{video_id}.lock"
+                if lock_file.exists():
+                    lock_file.unlink()
+                    
+                logger.debug(f"Released download lock for video {video_id}")
+            except Exception as e:
+                logger.warning(f"Error releasing lock for video {video_id}: {e}")
+    
     def _download_with_retry(self, ydl, url: str, max_attempts: int = MAX_RETRY_ATTEMPTS) -> tuple[bool, str]:
         """
         Download with exponential backoff retry
@@ -152,7 +219,7 @@ class TikTokDownloader:
                 if '429' in error_msg or 'rate limit' in error_msg.lower():
                     logger.warning(f"Rate limited on attempt {attempt}, waiting...")
                     delay = RETRY_DELAYS[min(attempt - 1, len(RETRY_DELAYS) - 1)]
-                    asyncio.sleep(delay)
+                    time.sleep(delay)
                     continue
                 
                 # Check for network errors
@@ -160,7 +227,7 @@ class TikTokDownloader:
                     if attempt < max_attempts:
                         delay = RETRY_DELAYS[min(attempt - 1, len(RETRY_DELAYS) - 1)]
                         logger.warning(f"Network error on attempt {attempt}, retrying in {delay}s: {error_msg}")
-                        asyncio.sleep(delay)
+                        time.sleep(delay)
                         continue
                 
                 # Photo/slideshow posts are not recoverable
@@ -172,7 +239,7 @@ class TikTokDownloader:
                 if attempt < max_attempts:
                     delay = RETRY_DELAYS[min(attempt - 1, len(RETRY_DELAYS) - 1)]
                     logger.warning(f"Error on attempt {attempt}, retrying in {delay}s: {error_msg}")
-                    asyncio.sleep(delay)
+                    time.sleep(delay)
                 else:
                     logger.error(f"Failed after {max_attempts} attempts: {error_msg}")
                     return False, error_msg
@@ -212,10 +279,58 @@ class TikTokDownloader:
                 logger.info(f"Profile @{username} found in database with {result['existing_videos']} videos ({result['downloaded_videos']} downloaded)")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(user_url, download=False)
+                try:
+                    info = ydl.extract_info(user_url, download=False)
+                except Exception as e:
+                    # API extraction failed - likely TikTok blocking
+                    error_msg = f"Failed to fetch profile data: {str(e)}"
+                    print(f"⚠️  {error_msg}")
+                    logger.warning(error_msg)
+                    result['error'] = error_msg
+                    
+                    # If we have existing profile data, return that at least
+                    if existing_profile:
+                        result['success'] = True
+                        result['total_videos'] = result['existing_videos']
+                        return result
+                    else:
+                        result['success'] = False
+                        return result
+                
+                if info is None:
+                    error_msg = "No profile data returned - profile may not exist or TikTok is blocking access"
+                    print(f"⚠️  {error_msg}")
+                    logger.warning(error_msg)
+                    result['error'] = error_msg
+                    
+                    if existing_profile:
+                        result['success'] = True
+                        result['total_videos'] = result['existing_videos']
+                        return result
+                    else:
+                        result['success'] = False
+                        return result
                 
                 if 'entries' in info:
                     videos = list(info['entries'])
+                    
+                    # Filter out None entries
+                    videos = [v for v in videos if v and isinstance(v, dict)]
+                    
+                    if not videos:
+                        error_msg = "No valid video entries found - TikTok API may be blocking"
+                        print(f"⚠️  {error_msg}")
+                        logger.warning(error_msg)
+                        result['error'] = error_msg
+                        
+                        if existing_profile:
+                            result['success'] = True
+                            result['total_videos'] = result['existing_videos']
+                            return result
+                        else:
+                            result['success'] = False
+                            return result
+                    
                     result['total_videos'] = len(videos)
                     result['success'] = True
                     
@@ -297,6 +412,79 @@ class TikTokDownloader:
         
         return result
     
+    async def get_video_download_urls(self, username: str) -> Dict:
+        """
+        Get direct download URLs for all videos (for browser extension)
+        Returns video metadata with direct download URLs without downloading to server
+        """
+        print(f"\n🔗 Fetching download URLs for @{username}")
+        
+        username = username.lstrip('@')
+        user_url = f"https://www.tiktok.com/@{username}"
+        
+        ydl_opts = self.ydl_opts_base.copy()
+        ydl_opts['extract_flat'] = False  # Need full info for download URLs
+        ydl_opts['quiet'] = True
+        
+        result = {
+            'username': username,
+            'total_videos': 0,
+            'videos': [],
+            'success': False,
+            'error': None
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                try:
+                    info = ydl.extract_info(user_url, download=False)
+                except Exception as e:
+                    error_msg = f"Failed to fetch videos: {str(e)}"
+                    logger.error(error_msg)
+                    result['error'] = error_msg
+                    return result
+                
+                if info is None or 'entries' not in info:
+                    result['error'] = "No videos found"
+                    return result
+                
+                videos = [v for v in info['entries'] if v and isinstance(v, dict)]
+                
+                if not videos:
+                    result['error'] = "No valid video entries found"
+                    return result
+                
+                result['total_videos'] = len(videos)
+                result['success'] = True
+                
+                # Extract download URLs for each video
+                for video in videos:
+                    video_id = video.get('id', 'unknown')
+                    
+                    video_info = {
+                        'id': video_id,
+                        'title': video.get('title', 'Untitled'),
+                        'webpage_url': video.get('webpage_url', ''),
+                        'download_url': video.get('url', ''),  # Direct video file URL
+                        'thumbnail': video.get('thumbnail', ''),
+                        'duration': video.get('duration'),
+                        'view_count': video.get('view_count'),
+                        'like_count': video.get('like_count'),
+                        'ext': video.get('ext', 'mp4'),
+                        'filename': f"{video_id}.{video.get('ext', 'mp4')}"
+                    }
+                    result['videos'].append(video_info)
+                
+                print(f"✅ Found {len(videos)} videos with download URLs")
+                logger.info(f"Generated download URLs for {len(videos)} videos from @{username}")
+                
+        except Exception as e:
+            result['error'] = str(e)
+            print(f"❌ Error: {str(e)}")
+            logger.error(f"Error getting download URLs for @{username}: {e}")
+        
+        return result
+    
     async def download_user_videos(self, username: str, output_dir: str) -> Dict:
         """
         Download all videos from a TikTok user
@@ -358,10 +546,37 @@ class TikTokDownloader:
                 print(f"🔍 Fetching video list for @{username}...")
                 logger.info(f"Fetching videos for @{username}")
                 
-                info = ydl.extract_info(user_url, download=False)
+                try:
+                    info = ydl.extract_info(user_url, download=False)
+                except Exception as e:
+                    error_msg = f"Failed to fetch videos from TikTok API: {str(e)}"
+                    print(f"⚠️  {error_msg}")
+                    logger.error(error_msg)
+                    result['error'] = error_msg
+                    return result
+                
+                if info is None:
+                    error_msg = f"No profile information returned for @{username} - profile may not exist or TikTok is blocking access"
+                    print(f"⚠️  {error_msg}")
+                    logger.error(error_msg)
+                    result['error'] = error_msg
+                    return result
                 
                 if 'entries' in info:
                     videos = list(info['entries'])
+                    
+                    # Filter out None entries first
+                    valid_videos = [v for v in videos if v and isinstance(v, dict)]
+                    
+                    # Check if we got any valid videos
+                    if not valid_videos:
+                        error_msg = f"No valid video entries found for @{username}. TikTok API may be blocking or rate limiting. Got {len(videos)} total entries with {len(valid_videos)} valid."
+                        print(f"⚠️  {error_msg}")
+                        logger.warning(error_msg)
+                        result['error'] = error_msg
+                        return result
+                    
+                    videos = valid_videos
                     result['total'] = len(videos)
                     
                     # Ensure profile exists in database
@@ -482,22 +697,42 @@ class TikTokDownloader:
                             else:
                                 print(f"\n📥 [{idx}/{len(videos_to_download)}] New Download: {video.get('title', 'Unknown')} (ID: {video_id})")
                             
-                            # Download with retry
-                            success, error_msg = self._download_with_retry(ydl, video_url)
-                            
-                            if not success:
-                                # Don't raise, just log and continue
-                                print(f"⚠️  Failed to download video {idx} after retries: {error_msg}")
-                                logger.warning(f"Video {video_id} failed after retries: {error_msg}")
-                                try:
-                                    self.db.mark_video_failed(video_id, error_msg)
-                                except:
-                                    pass
-                                result['failed'] += 1
+                            # Acquire download lock to prevent duplicate downloads across processes
+                            lock_fd = self._acquire_download_lock(video_id, output_path)
+                            if not lock_fd:
+                                # Another process is downloading this video, skip it
+                                print(f"⏭️  [{idx}/{len(videos_to_download)}] Skipping {video_id} - already being downloaded")
+                                logger.info(f"Video {video_id} locked by another process, skipping")
                                 continue
                             
-                            # Mark as downloaded in database
-                            if expected_file.exists():
+                            try:
+                                # Download with retry
+                                success, error_msg = self._download_with_retry(ydl, video_url)
+                                
+                                if not success:
+                                    # Don't raise, just log and continue
+                                    print(f"⚠️  Failed to download video {idx} after retries: {error_msg}")
+                                    logger.warning(f"Video {video_id} failed after retries: {error_msg}")
+                                    try:
+                                        self.db.mark_video_failed(video_id, error_msg)
+                                    except:
+                                        pass
+                                    result['failed'] += 1
+                                    continue
+                                
+                                # Verify file was actually created before marking as successful
+                                if not expected_file.exists():
+                                    error_msg = "Video file was not created (possible extraction failure)"
+                                    print(f"⚠️  File not found after download: {expected_file.name}")
+                                    logger.warning(f"Video {video_id} download reported success but file missing: {error_msg}")
+                                    try:
+                                        self.db.mark_video_failed(video_id, error_msg)
+                                    except:
+                                        pass
+                                    result['failed'] += 1
+                                    continue
+                                
+                                # Mark as downloaded in database
                                 file_hash = self._calculate_file_hash(str(expected_file))
                                 if file_hash:
                                     self.downloaded_hashes.add(file_hash)
@@ -506,9 +741,12 @@ class TikTokDownloader:
                                         file_path=str(expected_file),
                                         file_hash=file_hash
                                     )
-                            
-                            result['downloaded'] += 1
-                            logger.info(f"Successfully downloaded video {video_id}")
+                                
+                                result['downloaded'] += 1
+                                logger.info(f"Successfully downloaded video {video_id}")
+                            finally:
+                                # Always release lock
+                                self._release_download_lock(lock_fd, video_id, output_path)
                         except Exception as e:
                             error_msg = str(e)
                             print(f"❌ Failed to download video {idx}: {error_msg}")

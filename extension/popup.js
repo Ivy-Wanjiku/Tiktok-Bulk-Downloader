@@ -260,9 +260,9 @@ async function downloadVideos() {
             return;
         }
         
-        showMessage(`✅ Demo: Successfully sent ${demoUrls.length} videos to backend (simulated)`, 'success');
+        showMessage(`✅ Demo: Would download ${demoUrls.length} videos directly to Downloads folder`, 'success');
         setTimeout(() => {
-            showMessage('✅ Demo: Job created with ID: demo-12345678', 'success');
+            showMessage('✅ Demo: Complete! Check your Downloads/TikTok folder', 'success');
         }, 1000);
         return;
     }
@@ -287,65 +287,113 @@ async function downloadVideos() {
         return;
     }
     
-    chrome.tabs.sendMessage(tab.id, { action: 'getStatus' }, async (response) => {
-        if (chrome.runtime.lastError) {
-            showMessage('❌ Cannot connect to page. Try refreshing.', 'error');
+    // Extract username from URL
+    let username = '';
+    if (tab.url.includes('@')) {
+        const match = tab.url.match(/@([\w.]+)/);
+        if (match) username = match[1];
+    }
+    
+    if (!username) {
+        showMessage('❌ Cannot detect username. Please visit a TikTok profile page (@username)', 'error');
+        return;
+    }
+    
+    // Check API status before fetching
+    const apiOnline = await checkApiStatus();
+    if (!apiOnline) {
+        showMessage('❌ Backend server is offline. Try again later.', 'error');
+        return;
+    }
+    
+    isDownloading = true;
+    document.getElementById('downloadBtn').disabled = true;
+    
+    try {
+        showMessage(`⏳ Fetching videos from @${username}...`, 'success');
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+        
+        // Call new endpoint to get video download URLs
+        const apiResponse = await fetch(`${apiUrl}/api/videos/user/${username}`, {
+            method: 'GET',
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!apiResponse.ok) {
+            const errorData = await apiResponse.json().catch(() => ({}));
+            showMessage(`❌ API Error: ${errorData.detail || 'Failed to fetch videos'}`, 'error');
+            isDownloading = false;
+            document.getElementById('downloadBtn').disabled = false;
             return;
         }
         
-        if (!response || !response.urls || response.urls.length === 0) {
-            showMessage('❌ No URLs collected. Start scrolling first!', 'error');
+        const data = await apiResponse.json();
+        
+        if (!data.videos || data.videos.length === 0) {
+            showMessage('❌ No videos found for this profile', 'error');
+            isDownloading = false;
+            document.getElementById('downloadBtn').disabled = false;
             return;
         }
         
-        // Check API status before sending
-        const apiOnline = await checkApiStatus();
-        if (!apiOnline) {
-            showMessage('❌ Backend server is offline. Start the server first.', 'error');
-            return;
-        }
+        showMessage(`✅ Found ${data.videos.length} videos. Starting downloads...`, 'success');
         
-        isDownloading = true;
-        document.getElementById('downloadBtn').disabled = true;
+        // Download each video using Chrome downloads API
+        let successCount = 0;
+        let failCount = 0;
         
-        try {
-            // Extract username from current TikTok page URL or first video URL
-            let username = '';
-            if (tab.url.includes('@')) {
-                const match = tab.url.match(/@([\w.]+)/);
-                if (match) username = match[1];
-            } else if (response.urls.length > 0) {
-                const match = response.urls[0].match(/@([\w.]+)/);
-                if (match) username = match[1];
+        for (let i = 0; i < data.videos.length; i++) {
+            const video = data.videos[i];
+            
+            try {
+                // Download video directly to Downloads/TikTok/{username}/ folder
+                await chrome.downloads.download({
+                    url: video.download_url,
+                    filename: `TikTok/${username}/${video.filename}`,
+                    saveAs: false,
+                    conflictAction: 'uniquify' // Auto-rename if file exists
+                });
+                
+                successCount++;
+                
+                // Update progress every 5 videos
+                if ((i + 1) % 5 === 0) {
+                    showMessage(`⏳ Downloading... ${i + 1}/${data.videos.length}`, 'success');
+                }
+                
+                // Small delay to avoid overwhelming the browser
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+            } catch (error) {
+                console.error(`Failed to download ${video.filename}:`, error);
+                failCount++;
             }
-            
-            showMessage(`⏳ Sending ${response.urls.length} videos to backend...`, 'success');
-            
-            // Create job with username if available
-            const jobData = {
-                urls: response.urls,
-                job_name: username ? `Download @${username}` : `Download ${response.urls.length} videos`
-            };
-            if (username) {
-                jobData.username = username;
-            }
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-            
-            const apiResponse = await fetch(`${apiUrl}/api/manifest/create`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(jobData),
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (apiResponse.ok) {
-                const data = await apiResponse.json();
-                showMessage(`✅ Download started! Job ID: ${data.job_id?.substring(0, 8)}...`, 'success');
-                lastDownloadTime = Date.now();
+        }
+        
+        // Final status
+        if (failCount === 0) {
+            showMessage(`✅ All ${successCount} videos downloaded to Downloads/TikTok/${username}/`, 'success');
+        } else {
+            showMessage(`⚠️ Downloaded ${successCount}/${data.videos.length} videos (${failCount} failed)`, 'success');
+        }
+        
+        lastDownloadTime = Date.now();
+        
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            showMessage('❌ Request timeout. Backend may be slow or offline.', 'error');
+        } else {
+            showMessage(`❌ Download error: ${error.message}`, 'error');
+        }
+    } finally {
+        isDownloading = false;
+        document.getElementById('downloadBtn').disabled = false;
+    }
+}
             } else {
                 const errorData = await apiResponse.json().catch(() => ({}));
                 showMessage(`❌ Failed: ${errorData.detail || apiResponse.statusText}`, 'error');

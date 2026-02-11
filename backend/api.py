@@ -296,6 +296,27 @@ async def preview_user_videos(username: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/videos/user/{username}")
+async def get_user_video_urls(username: str):
+    """Get direct download URLs for all videos from a TikTok user (for extension)"""
+    try:
+        result = await downloader.get_video_download_urls(username)
+        
+        if result['success']:
+            return {
+                "username": result['username'],
+                "total_videos": result['total_videos'],
+                "videos": result['videos'],
+                "message": f"Found {result['total_videos']} videos with download URLs"
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=result['error'] or "Failed to fetch video URLs"
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/download/urls")
 async def download_from_urls(urls: List[str], background_tasks: BackgroundTasks):
     """Download videos from a list of URLs"""
