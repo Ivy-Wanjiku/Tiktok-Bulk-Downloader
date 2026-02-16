@@ -135,50 +135,58 @@ async function checkApiStatus() {
     }
     
     console.log(`🔗 Checking API health: ${apiUrl}/api/health`);
-    
+
     // Set checking state
     document.getElementById('apiStatus').textContent = '⏳ Checking...';
     document.getElementById('apiStatus').style.color = '#ff9800';
-    
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        
-        const response = await fetch(`${apiUrl}/api/health`, {
-            signal: controller.signal,
-            headers: {
-                'Accept': 'application/json'
+
+    // Retry logic for transient backend cold starts
+    const attempts = 3;
+    const baseTimeout = 15000; // 15s per attempt
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), baseTimeout);
+
+            const response = await fetch(`${apiUrl}/api/health`, {
+                signal: controller.signal,
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                document.getElementById('apiStatus').textContent = '✅ Connected';
+                document.getElementById('apiStatus').style.color = '#4caf50';
+                console.log(`✅ API health check passed (attempt ${attempt})`);
+                return true;
+            } else {
+                console.warn(`⚠️ API health check returned status ${response.status} (attempt ${attempt})`);
+                // show intermediate error but keep retrying
+                document.getElementById('apiStatus').textContent = `❌ Error (${response.status})`;
+                document.getElementById('apiStatus').style.color = '#f44336';
+                // small backoff before next attempt
+                await new Promise(r => setTimeout(r, attempt * 1000));
             }
-        });
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-            document.getElementById('apiStatus').textContent = '✅ Connected';
-            document.getElementById('apiStatus').style.color = '#4caf50';
-            console.log('✅ API health check passed');
-            return true;
-        } else {
-            document.getElementById('apiStatus').textContent = `❌ Error (${response.status})`;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.error(`❌ API health check timed out after ${baseTimeout/1000}s (attempt ${attempt})`);
+                document.getElementById('apiStatus').textContent = `❌ Timeout (${baseTimeout/1000}s)`;
+            } else {
+                console.error(`❌ API health check error (attempt ${attempt}):`, error.message || error);
+                document.getElementById('apiStatus').textContent = `❌ ${error.message || 'Network error'}`;
+            }
+
             document.getElementById('apiStatus').style.color = '#f44336';
-            console.warn(`⚠️ API health check returned status: ${response.status}`);
-            return false;
+            // backoff before retrying
+            if (attempt < attempts) await new Promise(r => setTimeout(r, attempt * 1500));
         }
-    } catch (error) {
-        let message = '❌ Offline';
-        if (error.name === 'AbortError') {
-            message = '❌ Timeout (8s)';
-            console.error('❌ API health check timed out after 8s');
-        } else if (error.message && error.message.includes('Failed to fetch')) {
-            message = '❌ CORS or Network Error';
-            console.error('❌ Network error (CORS or connection issue):', error.message);
-        } else {
-            message = `❌ ${error.message || 'Connection error'}`;
-            console.error('❌ API health check error:', error.message || error);
-        }
-        document.getElementById('apiStatus').textContent = message;
-        document.getElementById('apiStatus').style.color = '#f44336';
-        return false;
     }
+
+    // All attempts failed
+    console.error('❌ API health check failed after retries');
+    return false;
 }
 
 async function updateStatus() {
@@ -350,15 +358,16 @@ async function downloadVideos() {
         showMessage(`⏳ Fetching videos from @${username}...`, 'success');
         
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-        
+        const timeoutMs = 120000; // 120s timeout for large profiles
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
         // Call new endpoint to get video download URLs
         console.log(`🔗 Requesting: ${apiUrl}/api/videos/user/${username}`);
         const apiResponse = await fetch(`${apiUrl}/api/videos/user/${username}`, {
             method: 'GET',
             signal: controller.signal
         });
-        
+
         clearTimeout(timeoutId);
         console.log(`📊 API Response status: ${apiResponse.status}`);
         
@@ -432,11 +441,11 @@ async function downloadVideos() {
         
     } catch (error) {
         if (error.name === 'AbortError') {
-            console.error('❌ Download timeout (30s)');
-            showMessage('❌ Request timeout. Backend may be slow or offline.', 'error');
+            console.error(`❌ Download timeout (${timeoutMs/1000}s)`);
+            showMessage(`❌ Request timeout (${timeoutMs/1000}s). Backend may be slow.`, 'error');
         } else {
-            console.error('❌ Download error:', error.message);
-            showMessage(`❌ Download error: ${error.message}`, 'error');
+            console.error('❌ Download error:', error.message || error);
+            showMessage(`❌ Download error: ${error.message || error}`, 'error');
         }
     } finally {
         isDownloading = false;
