@@ -67,7 +67,10 @@ function toggleDemoMode(enabled) {
         showMessage('✅ Demo mode enabled - test without backend', 'success');
     } else {
         document.getElementById('demoInfo').style.display = 'none';
-        checkApiStatus();
+        checkApiStatus().catch(() => {
+            document.getElementById('apiStatus').textContent = '❌ Unable to reach backend';
+            document.getElementById('apiStatus').style.color = '#f44336';
+        });
     }
 }
 
