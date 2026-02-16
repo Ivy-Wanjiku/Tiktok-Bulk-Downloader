@@ -342,13 +342,9 @@ async function downloadVideos() {
         return;
     }
     
-    // Check API status before fetching
-    const apiOnline = await checkApiStatus();
-    if (!apiOnline) {
-        showMessage('❌ Backend server is offline. Try again later.', 'error');
-        console.error('❌ Download cancelled: API is offline');
-        return;
-    }
+    // Note: Health check may timeout due to network/CORS restrictions on extensions
+    // We'll proceed with download attempt anyway and let it fail with a clearer error
+    console.log('⏭️ Skipping health check, proceeding directly to video fetch...');
     
     isDownloading = true;
     document.getElementById('downloadBtn').disabled = true;
@@ -357,19 +353,55 @@ async function downloadVideos() {
         console.log(`📥 Starting download for @${username}...`);
         showMessage(`⏳ Fetching videos from @${username}...`, 'success');
         
-        const controller = new AbortController();
-        const timeoutMs = 120000; // 120s timeout for large profiles
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        // Retry logic for fetching videos (handles transient backend issues)
+        const fetchAttempts = 3;
+        const fetchTimeout = 60000; // 60s per attempt
+        let apiResponse = null;
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= fetchAttempts; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
 
-        // Call new endpoint to get video download URLs
-        console.log(`🔗 Requesting: ${apiUrl}/api/videos/user/${username}`);
-        const apiResponse = await fetch(`${apiUrl}/api/videos/user/${username}`, {
-            method: 'GET',
-            signal: controller.signal
-        });
+                console.log(`🔗 Requesting videos (attempt ${attempt}/${fetchAttempts}): ${apiUrl}/api/videos/user/${username}`);
+                apiResponse = await fetch(`${apiUrl}/api/videos/user/${username}`, {
+                    method: 'GET',
+                    signal: controller.signal
+                });
 
-        clearTimeout(timeoutId);
-        console.log(`📊 API Response status: ${apiResponse.status}`);
+                clearTimeout(timeoutId);
+                console.log(`📊 API Response status: ${apiResponse.status} (attempt ${attempt})`);
+                
+                // Success, break out of retry loop
+                if (apiResponse.ok || attempt === fetchAttempts) {
+                    break;
+                }
+                
+                // Not OK and more attempts available, retry with backoff
+                console.warn(`⚠️ Got ${apiResponse.status}, retrying...`);
+                await new Promise(r => setTimeout(r, attempt * 2000));
+                
+            } catch (error) {
+                lastError = error;
+                if (error.name === 'AbortError') {
+                    console.error(`⏱️ Attempt ${attempt} timed out (${fetchTimeout/1000}s)`);
+                } else {
+                    console.error(`❌ Attempt ${attempt} failed:`, error.message);
+                }
+                
+                if (attempt < fetchAttempts) {
+                    const backoffMs = attempt * 3000;
+                    console.log(`⏳ Retrying in ${backoffMs/1000}s...`);
+                    await new Promise(r => setTimeout(r, backoffMs));
+                }
+            }
+        }
+        
+        // Check if we got a response or had errors
+        if (!apiResponse) {
+            throw lastError || new Error('Failed to fetch videos after all retries');
+        }
         
         if (!apiResponse.ok) {
             const errorData = await apiResponse.json().catch(() => ({}));
@@ -441,11 +473,11 @@ async function downloadVideos() {
         
     } catch (error) {
         if (error.name === 'AbortError') {
-            console.error(`❌ Download timeout (${timeoutMs/1000}s)`);
-            showMessage(`❌ Request timeout (${timeoutMs/1000}s). Backend may be slow.`, 'error');
+            console.error(`⏱️ Request timed out`);
+            showMessage(`❌ Request timeout. Backend may be experiencing high load. Please try again.`, 'error');
         } else {
             console.error('❌ Download error:', error.message || error);
-            showMessage(`❌ Download error: ${error.message || error}`, 'error');
+            showMessage(`❌ ${error.message || 'Download failed'}`, 'error');
         }
     } finally {
         isDownloading = false;
