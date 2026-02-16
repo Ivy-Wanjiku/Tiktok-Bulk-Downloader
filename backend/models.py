@@ -5,9 +5,10 @@ SQLAlchemy ORM models for profiles and videos
 """
 
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, BigInteger, Float, Text, Boolean, Index
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, BigInteger, Float, Text, Boolean, Index, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.pool import QueuePool
 from pathlib import Path
 
 Base = declarative_base()
@@ -165,11 +166,28 @@ class DownloadJob(Base):
 
 # Database initialization
 def init_db(db_path: str = None):
-    """Initialize the database"""
+    """
+    Initialize database and create all tables with thread-safe configuration
+    """
     if db_path is None:
         db_path = str(Path(__file__).parent.parent / "tiktok_downloader.db")
     
-    engine = create_engine(f'sqlite:///{db_path}', echo=False)
+    # Create engine with thread-safe pooling configuration
+    # CRITICAL FIX: Added connection pool limits and thread safety
+    from sqlalchemy.pool import QueuePool
+    engine = create_engine(
+        f'sqlite:///{db_path}',
+        echo=False,  # Set to True for SQL query debugging
+        poolclass=QueuePool,
+        pool_size=1,  # Single connection to prevent concurrent access issues
+        max_overflow=0,  # No overflow connections
+        pool_pre_ping=True,  # Verify connections before using
+        pool_recycle=3600,  # Recycle connections after 1 hour
+        connect_args={
+            'check_same_thread': False,  # Allow SQLite usage across threads
+            'timeout': 30  # 30 second timeout for lock acquisition
+        }
+    )
     Base.metadata.create_all(engine)
     return engine
 

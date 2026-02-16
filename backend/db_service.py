@@ -25,17 +25,20 @@ class DatabaseService:
     
     @contextmanager
     def session_scope(self):
-        """Provide a transactional scope with automatic cleanup"""
+        """Provide a transactional scope with automatic cleanup and thread safety"""
         session = self.SessionFactory()
         try:
             yield session
             session.commit()
         except Exception as e:
             session.rollback()
-            logger.error(f"Database error: {e}")
+            logger.error(f"Database error in session_scope: {e}", exc_info=True)
             raise
         finally:
-            session.close()
+            try:
+                session.close()
+            except Exception as e:
+                logger.warning(f"Error closing database session: {e}")
     
     # ==================== Profile Operations ====================
     

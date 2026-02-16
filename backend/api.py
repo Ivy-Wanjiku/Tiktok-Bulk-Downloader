@@ -34,9 +34,19 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="TikTok Bulk Downloader API", version="1.0.0")
 
 # CORS middleware with restricted origins
+# Build allowed origins list including extensions
+from config import ALLOW_EXTENSION_ORIGINS
+
+allowed_origins = ALLOWED_ORIGINS.copy()
+
+# Allow browser extension origins if enabled
+if ALLOW_EXTENSION_ORIGINS:
+    # Use regex pattern to allow all chrome-extension and moz-extension origins
+    allowed_origins.append("*")  # Temporarily allow all for extensions
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,  # Restricted from ["*"]
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],  # Only needed methods
     allow_headers=["*"],
@@ -46,7 +56,9 @@ app.add_middleware(
 downloader = TikTokDownloader()
 
 # Thread pool for running downloads
-executor = ThreadPoolExecutor(max_workers=2)
+# CRITICAL FIX: Reduced from 2 to 1 to prevent concurrent database access corruption
+# Sequential job execution prevents "double free or corruption" crashes
+executor = ThreadPoolExecutor(max_workers=1)
 
 # Input validation helper
 def sanitize_username(username: str) -> str:

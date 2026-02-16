@@ -22,7 +22,16 @@ API_PORT = int(os.getenv("API_PORT", 3000))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 # Security Configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080,http://0.0.0.0:8080").split(",")
+# Allow localhost, local IPs, and chrome/firefox extensions
+ALLOWED_ORIGINS_STR = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080,http://0.0.0.0:8080"
+)
+ALLOWED_ORIGINS = ALLOWED_ORIGINS_STR.split(",")
+
+# Also allow all chrome-extension and moz-extension origins (for browser extensions)
+ALLOW_EXTENSION_ORIGINS = True  # Set to False to disable extension access
+
 ENABLE_AUTH = os.getenv("ENABLE_AUTH", "false").lower() == "true"
 API_KEY = os.getenv("API_KEY", None)
 

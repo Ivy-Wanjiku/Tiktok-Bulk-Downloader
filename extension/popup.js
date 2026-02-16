@@ -29,8 +29,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         toggleDemoMode(true);
     }
     
-    // Check API status
-    checkApiStatus();
+    // Check API status (non-blocking)
+    checkApiStatus().catch(() => {
+        document.getElementById('apiStatus').textContent = '❌ Unable to reach backend';
+        document.getElementById('apiStatus').style.color = '#f44336';
+    });
     
     // Update status
     updateStatus();
@@ -120,12 +123,19 @@ async function checkApiStatus() {
         return true;
     }
     
+    // Set checking state
+    document.getElementById('apiStatus').textContent = '⏳ Checking...';
+    document.getElementById('apiStatus').style.color = '#ff9800';
+    
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
         
         const response = await fetch(`${apiUrl}/api/health`, {
-            signal: controller.signal
+            signal: controller.signal,
+            headers: {
+                'Accept': 'application/json'
+            }
         });
         clearTimeout(timeoutId);
         
@@ -136,12 +146,19 @@ async function checkApiStatus() {
         } else {
             document.getElementById('apiStatus').textContent = `❌ Error (${response.status})`;
             document.getElementById('apiStatus').style.color = '#f44336';
+            console.warn(`API health check returned status: ${response.status}`);
             return false;
         }
     } catch (error) {
-        const message = error.name === 'AbortError' ? '❌ Timeout' : '❌ Offline';
+        let message = '❌ Offline';
+        if (error.name === 'AbortError') {
+            message = '❌ Timeout (8s)';
+        } else {
+            message = `❌ ${error.message || 'Connection error'}`;
+        }
         document.getElementById('apiStatus').textContent = message;
         document.getElementById('apiStatus').style.color = '#f44336';
+        console.error('API health check error:', error);
         return false;
     }
 }
@@ -394,22 +411,6 @@ async function downloadVideos() {
         document.getElementById('downloadBtn').disabled = false;
     }
 }
-            } else {
-                const errorData = await apiResponse.json().catch(() => ({}));
-                showMessage(`❌ Failed: ${errorData.detail || apiResponse.statusText}`, 'error');
-            }
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                showMessage('❌ Request timeout. Server may be slow.', 'error');
-            } else {
-                showMessage(`❌ Error: ${error.message}`, 'error');
-            }
-        } finally {
-            isDownloading = false;
-            document.getElementById('downloadBtn').disabled = false;
-        }
-    });
-}
 
 async function clearUrls() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -432,7 +433,10 @@ async function saveSettings() {
     apiUrl = newApiUrl;
     
     showMessage('Settings saved', 'success');
-    checkApiStatus();
+    checkApiStatus().catch(() => {
+        document.getElementById('apiStatus').textContent = '❌ Unable to reach backend';
+        document.getElementById('apiStatus').style.color = '#f44336';
+    });
 }
 
 function showMessage(text, type) {
