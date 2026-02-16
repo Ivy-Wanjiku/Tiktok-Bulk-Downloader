@@ -156,12 +156,14 @@ async function checkApiStatus() {
         let message = '❌ Offline';
         if (error.name === 'AbortError') {
             message = '❌ Timeout (8s)';
+        } else if (error.message && error.message.includes('Failed to fetch')) {
+            message = '❌ CORS or Network Error';
         } else {
             message = `❌ ${error.message || 'Connection error'}`;
         }
         document.getElementById('apiStatus').textContent = message;
         document.getElementById('apiStatus').style.color = '#f44336';
-        console.error('API health check error:', error);
+        console.error('API health check error:', error.message || error);
         return false;
     }
 }

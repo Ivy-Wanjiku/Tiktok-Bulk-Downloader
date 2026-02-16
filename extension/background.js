@@ -16,7 +16,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Clear badge when tab is closed or navigated away from TikTok
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.status === 'complete' && !tab.url.includes('tiktok.com')) {
+    if (changeInfo.status === 'complete' && tab && tab.url && !tab.url.includes('tiktok.com')) {
         chrome.action.setBadgeText({ text: '', tabId: tabId });
     }
 });
