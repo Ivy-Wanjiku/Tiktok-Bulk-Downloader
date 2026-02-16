@@ -9,6 +9,8 @@ let demoMode = false; // Demo mode for testing without backend
 let demoUrls = []; // Simulated collected URLs in demo mode
 
 document.addEventListener('DOMContentLoaded', async () => {
+    console.log('🎬 TikTok Bulk Downloader Extension Loaded');
+    
     // Load saved settings
     const settings = await chrome.storage.local.get(['scrollInterval', 'apiUrl', 'demoMode']);
     if (settings.scrollInterval) {
@@ -17,9 +19,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (settings.apiUrl) {
         apiUrl = settings.apiUrl;
         document.getElementById('apiUrl').value = apiUrl;
+        console.log(`📡 API URL: ${apiUrl}`);
     } else {
         // Set default value in UI
         document.getElementById('apiUrl').value = apiUrl;
+        console.log(`📡 Using default API URL: ${apiUrl}`);
     }
     
     // Check if demo mode is enabled
@@ -27,12 +31,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         demoMode = true;
         document.getElementById('demoModeToggle').checked = true;
         toggleDemoMode(true);
+        console.log('🎭 Demo mode enabled');
     }
     
+    console.log('🔍 Checking API status...');
     // Check API status (non-blocking)
     checkApiStatus().catch(() => {
         document.getElementById('apiStatus').textContent = '❌ Unable to reach backend';
         document.getElementById('apiStatus').style.color = '#f44336';
+        console.error('❌ API status check failed');
     });
     
     // Update status
@@ -123,8 +130,11 @@ async function checkApiStatus() {
     if (demoMode) {
         document.getElementById('apiStatus').textContent = '🎭 Demo Mode';
         document.getElementById('apiStatus').style.color = '#ff9800';
+        console.log('✅ Demo mode active, skipping API check');
         return true;
     }
+    
+    console.log(`🔗 Checking API health: ${apiUrl}/api/health`);
     
     // Set checking state
     document.getElementById('apiStatus').textContent = '⏳ Checking...';
@@ -145,25 +155,28 @@ async function checkApiStatus() {
         if (response.ok) {
             document.getElementById('apiStatus').textContent = '✅ Connected';
             document.getElementById('apiStatus').style.color = '#4caf50';
+            console.log('✅ API health check passed');
             return true;
         } else {
             document.getElementById('apiStatus').textContent = `❌ Error (${response.status})`;
             document.getElementById('apiStatus').style.color = '#f44336';
-            console.warn(`API health check returned status: ${response.status}`);
+            console.warn(`⚠️ API health check returned status: ${response.status}`);
             return false;
         }
     } catch (error) {
         let message = '❌ Offline';
         if (error.name === 'AbortError') {
             message = '❌ Timeout (8s)';
+            console.error('❌ API health check timed out after 8s');
         } else if (error.message && error.message.includes('Failed to fetch')) {
             message = '❌ CORS or Network Error';
+            console.error('❌ Network error (CORS or connection issue):', error.message);
         } else {
             message = `❌ ${error.message || 'Connection error'}`;
+            console.error('❌ API health check error:', error.message || error);
         }
         document.getElementById('apiStatus').textContent = message;
         document.getElementById('apiStatus').style.color = '#f44336';
-        console.error('API health check error:', error.message || error);
         return false;
     }
 }
@@ -325,6 +338,7 @@ async function downloadVideos() {
     const apiOnline = await checkApiStatus();
     if (!apiOnline) {
         showMessage('❌ Backend server is offline. Try again later.', 'error');
+        console.error('❌ Download cancelled: API is offline');
         return;
     }
     
@@ -332,21 +346,25 @@ async function downloadVideos() {
     document.getElementById('downloadBtn').disabled = true;
     
     try {
+        console.log(`📥 Starting download for @${username}...`);
         showMessage(`⏳ Fetching videos from @${username}...`, 'success');
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
         
         // Call new endpoint to get video download URLs
+        console.log(`🔗 Requesting: ${apiUrl}/api/videos/user/${username}`);
         const apiResponse = await fetch(`${apiUrl}/api/videos/user/${username}`, {
             method: 'GET',
             signal: controller.signal
         });
         
         clearTimeout(timeoutId);
+        console.log(`📊 API Response status: ${apiResponse.status}`);
         
         if (!apiResponse.ok) {
             const errorData = await apiResponse.json().catch(() => ({}));
+            console.error(`❌ API Error (${apiResponse.status}):`, errorData);
             showMessage(`❌ API Error: ${errorData.detail || 'Failed to fetch videos'}`, 'error');
             isDownloading = false;
             document.getElementById('downloadBtn').disabled = false;
@@ -354,8 +372,10 @@ async function downloadVideos() {
         }
         
         const data = await apiResponse.json();
+        console.log(`✅ Found ${data.videos.length} videos`);
         
         if (!data.videos || data.videos.length === 0) {
+            console.warn('⚠️ No videos found for this profile');
             showMessage('❌ No videos found for this profile', 'error');
             isDownloading = false;
             document.getElementById('downloadBtn').disabled = false;
@@ -363,6 +383,7 @@ async function downloadVideos() {
         }
         
         showMessage(`✅ Found ${data.videos.length} videos. Starting downloads...`, 'success');
+        console.log(`📥 Starting download of ${data.videos.length} videos...`);
         
         // Download each video using Chrome downloads API
         let successCount = 0;
@@ -372,6 +393,7 @@ async function downloadVideos() {
             const video = data.videos[i];
             
             try {
+                console.log(`  📹 Downloading [${i+1}/${data.videos.length}]: ${video.filename}`);
                 // Download video directly to Downloads/TikTok/{username}/ folder
                 await chrome.downloads.download({
                     url: video.download_url,
@@ -384,6 +406,7 @@ async function downloadVideos() {
                 
                 // Update progress every 5 videos
                 if ((i + 1) % 5 === 0) {
+                    console.log(`  ✅ Progress: ${i + 1}/${data.videos.length}`);
                     showMessage(`⏳ Downloading... ${i + 1}/${data.videos.length}`, 'success');
                 }
                 
@@ -391,15 +414,17 @@ async function downloadVideos() {
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
             } catch (error) {
-                console.error(`Failed to download ${video.filename}:`, error);
+                console.error(`  ❌ Failed to download ${video.filename}:`, error);
                 failCount++;
             }
         }
         
         // Final status
         if (failCount === 0) {
+            console.log(`✅ SUCCESS: All ${successCount} videos downloaded to Downloads/TikTok/${username}/`);
             showMessage(`✅ All ${successCount} videos downloaded to Downloads/TikTok/${username}/`, 'success');
         } else {
+            console.warn(`⚠️ PARTIAL: Downloaded ${successCount}/${data.videos.length} videos (${failCount} failed)`);
             showMessage(`⚠️ Downloaded ${successCount}/${data.videos.length} videos (${failCount} failed)`, 'success');
         }
         
@@ -407,8 +432,10 @@ async function downloadVideos() {
         
     } catch (error) {
         if (error.name === 'AbortError') {
+            console.error('❌ Download timeout (30s)');
             showMessage('❌ Request timeout. Backend may be slow or offline.', 'error');
         } else {
+            console.error('❌ Download error:', error.message);
             showMessage(`❌ Download error: ${error.message}`, 'error');
         }
     } finally {
